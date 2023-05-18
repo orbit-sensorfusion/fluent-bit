@@ -172,6 +172,7 @@ option(FLB_IN_MEM                      "Enable Memory input plugin"             
 option(FLB_IN_KAFKA                    "Enable Kafka input plugin"                     No)
 option(FLB_IN_KMSG                     "Enable Kernel log input plugin"               Yes)
 option(FLB_IN_LIB                      "Enable library mode input plugin"             Yes)
+option(FLB_IN_LIB_METRICS              "Enable library metrics mode input plugin"     Yes)
 option(FLB_IN_RANDOM                   "Enable random input plugin"                   Yes)
 option(FLB_IN_SERIAL                   "Enable Serial input plugin"                   Yes)
 option(FLB_IN_STDIN                    "Enable Standard input plugin"                 Yes)
