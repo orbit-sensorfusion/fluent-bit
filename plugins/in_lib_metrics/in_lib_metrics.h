@@ -28,9 +28,10 @@
 
 #define LIB_BUF_CHUNK   65536
 
-struct cmt_map {
-    flb_sds_t key;
-    struct cmt_gauge *value;
+struct named_metric_gauge {
+    flb_sds_t name;             /* Metrics Name     */
+    struct cmt *cmt;            /* CMetrics Context */
+    struct cmt_gauge *gauge;    /* CMetrics Gauge   */
 };
 
 struct gauge_record {
@@ -38,24 +39,11 @@ struct gauge_record {
     char *ss;
     char *name;
     char *description;
-    int ns_len;
-    int ss_len;
-    int name_len;
-    int description_len;
     struct mk_list _head;
 };
 
 /* Library input configuration & context */
 struct flb_in_lib_config {
-    
-     /* config options */
-    flb_sds_t label_str; 
-    int labels_num;
-    char **labels;
-    struct mk_list *gauge_keys;
-    struct mk_list gauges;
-    int gauges_num;
-
 
     int fd;                     /* instance input channel  */
     int buf_size;               /* buffer size / capacity  */
@@ -64,10 +52,19 @@ struct flb_in_lib_config {
 
     struct flb_pack_state state;
     struct flb_input_instance *ins;
+    
+    /* config options */
+    // Labels
+    flb_sds_t labels_str; 
+    int labels_size;
+    char **labels;
+    // Gauge Definitions
+    struct mk_list *gauge_definitions;
+    struct mk_list gauges;
+    int gauges_size;
 
-    struct cmt *cmt;            /* metrics context          */
-    struct cmt_map *cmts;       /* All supported metrics    */
-    int cmts_size;
+    /* An independent CMetrics metric for each gauge metric to record */
+    struct named_metric_gauge *named_metrics_gauge;   
 };
 
 #endif
