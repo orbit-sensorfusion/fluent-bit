@@ -28,6 +28,7 @@
 #include <fluent-bit/flb_input.h>
 #include <fluent-bit/flb_input_plugin.h>
 #include <fluent-bit/flb_config.h>
+#include <fluent-bit/flb_utils.h>
 #include <fluent-bit/flb_pack.h>
 #include <fluent-bit/flb_error.h>
 #include <fluent-bit/flb_metrics.h>
@@ -100,10 +101,6 @@ static int in_lib_collect(struct flb_input_instance *ins,
     while (msgpack_unpack_next(&result, pack, pack_size, &off) == MSGPACK_UNPACK_SUCCESS) {
 
         msg_obj = &result.data;
-        
-        //printf("1 \n");
-        //msgpack_object_print(stdout, msg_obj);
-        //printf("2 \n");
 
         if (msg_obj->type == MSGPACK_OBJECT_MAP) {
             if (msg_obj->via.map.size == 4) {
@@ -170,7 +167,7 @@ static int in_lib_collect(struct flb_input_instance *ins,
             return -1;
         }
     }
-    
+
     /* Append the updated metrics */
     ret = flb_input_metrics_append(ctx->ins, NULL, 0, ctx->cmt);
     if (ret != 0) {
@@ -184,6 +181,101 @@ static int in_lib_collect(struct flb_input_instance *ins,
     flb_pack_state_init(&ctx->state);
 
     return ret;
+}
+
+static int in_lib_configure(struct flb_in_lib_config *ctx) {
+    struct mk_list *head = NULL;
+    struct mk_list *split;
+    struct mk_list *tmp;
+    struct flb_split_entry *sentry;
+    struct flb_config_map_val *record_key;
+    struct gauge_record *record;
+
+    mk_list_init(&ctx->gauges);
+    ctx->gauges_num = 0;
+
+    /* Get labels but max 10 */
+    flb_plg_trace(ctx->ins, "labels string '%s'", ctx->labels);
+    split = flb_utils_split(ctx->label_str, ' ', 10);
+    ctx->labels_num = mk_list_size(split);
+    flb_plg_trace(ctx->ins, "number of labels '%i'", ctx->labels_num);
+    ctx->labels = flb_malloc(sizeof(char *) * (ctx->labels_num + 1));
+    int i = 0;
+    mk_list_foreach_safe(head, tmp, split) {
+        sentry = mk_list_entry(head, struct flb_split_entry, _head);
+        ctx->labels[i] = flb_strndup(sentry->value, sentry->len);
+        i++;
+    }
+
+    /* Get gauge definitions */
+    ctx->cmt = cmt_create();
+    if (!ctx->cmt) {
+        flb_plg_error(ctx->ins, "could not initialize CMetrics");
+        flb_free(ctx);
+        return -1;
+    }
+
+    flb_config_map_foreach(head, record_key, ctx->gauge_keys) {
+        record = flb_malloc(sizeof(struct gauge_record));
+        if (!record) {
+            flb_errno();
+            return -1;
+        }
+        split = flb_utils_split(record_key->val.str, ' ', 3);
+        if (mk_list_size(split) != 4) {
+            flb_plg_error(ctx->ins, "Invalid gauge parameter, expects 'NS SS NAME DESCRIPTION");
+            flb_free(record);
+            flb_utils_split_free(split);
+            return -1;
+        }
+
+        /* Get NS */
+        sentry = mk_list_entry_first(split, struct flb_split_entry, _head);
+        record->ns = flb_strndup(sentry->value, sentry->len);
+        record->ns_len = sentry->len;
+
+        /* Get SS */
+        sentry = mk_list_entry_next(&sentry->_head, struct flb_split_entry,
+                                    _head, split);
+        record->ss = flb_strndup(sentry->value, sentry->len);
+        record->ss_len = sentry->len;
+
+        /* Get Name */
+        sentry = mk_list_entry_next(&sentry->_head, struct flb_split_entry,
+                                    _head, split);
+        record->name = flb_strndup(sentry->value, sentry->len);
+        record->name_len = sentry->len;
+
+        /* Get Description */
+        sentry = mk_list_entry_last(split, struct flb_split_entry, _head);
+        record->description = flb_strndup(sentry->value, sentry->len);
+        record->description_len = sentry->len;
+
+        flb_utils_split_free(split);
+        mk_list_add(&record->_head, &ctx->gauges);
+        ctx->gauges_num++;
+    }
+
+    flb_plg_trace(ctx->ins, "Number of gauges %i", ctx->gauges_num) ;
+    if (ctx->gauges_num <= 0) {
+        flb_plg_error(ctx->ins, "at least one gauge is required");
+        return -1;
+    }
+
+    /* Add gauge definitions */
+    ctx->cmts_size = ctx->gauges_num;
+    ctx->cmts = (struct cmt_map*)flb_malloc(sizeof(struct cmt_map)*ctx->cmts_size);
+    i = 0;
+    mk_list_foreach_safe(head, tmp, &ctx->gauges) {
+        record = mk_list_entry(head, struct gauge_record, _head);
+        flb_plg_trace(ctx->ins, "Create gauge with name %s", record->name) ;
+        ctx->cmts[i].key = flb_sds_create(record->name);
+        ctx->cmts[i].value = cmt_gauge_create(ctx->cmt, record->ns, record->ss, 
+                                            record->name, record->description,
+                                            ctx->labels_num, ctx->labels);
+        i++;
+    }
+    return 0;
 }
 
 /* Initialize plugin */
@@ -213,112 +305,18 @@ static int in_lib_init(struct flb_input_instance *in,
         return -1;
     }
 
-    ctx->cmt = cmt_create();
-    if (!ctx->cmt) {
-        flb_plg_error(ctx->ins, "could not initialize CMetrics");
+    /* Load the config map */
+    ret = flb_input_config_map_set(in, (void *)ctx);
+    if (ret == -1) {
+        flb_plg_error(in, "unable to load configuration");
         flb_free(ctx);
-        return NULL;
+        return -1;
     }
 
-    /* Init metrics */
-    ctx->cmts_size = 19;
-    ctx->cmts = (struct cmt_map*)flb_malloc(sizeof(struct cmt_map)*ctx->cmts_size);
-    ctx->cmts[0].key = flb_sds_create("CloudUploadbytes");
-    ctx->cmts[0].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "CloudUploadbytes",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[1].key = flb_sds_create("CloudDownloadbytes");
-    ctx->cmts[1].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "CloudDownloadbytes",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"}); 
-    ctx->cmts[2].key = flb_sds_create("SupplyVoltage");
-    ctx->cmts[2].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "SupplyVoltage",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[3].key = flb_sds_create("Accelerometer");
-    ctx->cmts[3].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "Accelerometer",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[4].key = flb_sds_create("AmbientLightSensor");
-    ctx->cmts[4].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "AmbientLightSensor",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[5].key = flb_sds_create("BVOCConcentrationSensor");
-    ctx->cmts[5].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "BVOCConcentrationSensor",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[6].key = flb_sds_create("Barometer");
-    ctx->cmts[6].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "Barometer",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[7].key = flb_sds_create("CO2ConcentrationSensor");
-    ctx->cmts[7].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "CO2ConcentrationSensor",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[8].key = flb_sds_create("FuelGauge");
-    ctx->cmts[8].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "FuelGauge",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[9].key = flb_sds_create("Gyroscope");
-    ctx->cmts[9].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "Gyroscope",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[10].key = flb_sds_create("IAQSensor");
-    ctx->cmts[10].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "IAQSensor",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[11].key = flb_sds_create("Magnetometer");
-    ctx->cmts[11].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "Magnetometer",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[12].key = flb_sds_create("RelativeHumiditySensor");
-    ctx->cmts[12].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "RelativeHumiditySensor",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[13].key = flb_sds_create("SupplyAmperage");
-    ctx->cmts[13].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "SupplyAmperage",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[14].key = flb_sds_create("SupplyBatVoltage");
-    ctx->cmts[14].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "SupplyBatVoltage",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[15].key = flb_sds_create("SupplyPower");
-    ctx->cmts[15].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "SupplyPower",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[16].key = flb_sds_create("SupplySourceIndex");
-    ctx->cmts[16].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "SupplySourceIndex",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[17].key = flb_sds_create("TVOCConcentrationSensor");
-    ctx->cmts[17].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "TVOCConcentrationSensor",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-    ctx->cmts[18].key = flb_sds_create("Thermometer");
-    ctx->cmts[18].value = cmt_gauge_create(ctx->cmt,
-                                "orbit", "sensor", "Thermometer",
-                                "d",
-                                3, (char *[]) {"serial_number", "sensor_mac", "index"});
-
+    /* Configure labels and gauges */
+    if (in_lib_configure(ctx) < 0) {
+        return -1;
+    }
 
     /* Init communication channel */
     flb_input_channel_init(in);
@@ -363,6 +361,23 @@ static int in_lib_exit(void *data, struct flb_config *config)
     return 0;
 }
 
+/* Configuration properties map */
+static struct flb_config_map config_map[] = {
+    {
+     FLB_CONFIG_MAP_STR, "labels", "default",
+     0, FLB_TRUE, offsetof(struct flb_in_lib_config, label_str),
+     "Add labels to your metrics"
+    },
+    {
+     FLB_CONFIG_MAP_STR, "gauge", NULL,
+     FLB_CONFIG_MAP_MULT, FLB_TRUE, offsetof(struct flb_in_lib_config, gauge_keys),
+     "Add gauge metrics"
+    },
+
+    /* EOF */
+    {0}
+};
+
 /* Plugin reference */
 struct flb_input_plugin in_lib_metrics_plugin = {
     .name         = "lib_metrics",
@@ -373,5 +388,6 @@ struct flb_input_plugin in_lib_metrics_plugin = {
     .cb_ingest    = NULL,
     .cb_flush_buf = NULL,
     .cb_exit      = in_lib_exit,
+    .config_map   = config_map,
     .event_type   = FLB_INPUT_METRICS
 };

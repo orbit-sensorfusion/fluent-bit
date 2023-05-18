@@ -24,6 +24,7 @@
 #include <fluent-bit/flb_config.h>
 #include <fluent-bit/flb_input.h>
 #include <fluent-bit/flb_pack.h>
+#include <fluent-bit/flb_input_plugin.h>
 
 #define LIB_BUF_CHUNK   65536
 
@@ -32,8 +33,30 @@ struct cmt_map {
     struct cmt_gauge *value;
 };
 
+struct gauge_record {
+    char *ns;
+    char *ss;
+    char *name;
+    char *description;
+    int ns_len;
+    int ss_len;
+    int name_len;
+    int description_len;
+    struct mk_list _head;
+};
+
 /* Library input configuration & context */
 struct flb_in_lib_config {
+    
+     /* config options */
+    flb_sds_t label_str; 
+    int labels_num;
+    char **labels;
+    struct mk_list *gauge_keys;
+    struct mk_list gauges;
+    int gauges_num;
+
+
     int fd;                     /* instance input channel  */
     int buf_size;               /* buffer size / capacity  */
     int buf_len;                /* read buffer length      */
