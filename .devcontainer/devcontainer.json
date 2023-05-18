@@ -34,5 +34,6 @@
 		}
 	},
 
-	"remoteUser": "fluent-bit"
+	"remoteUser": "fluent-bit",
+	"postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}"
 }
