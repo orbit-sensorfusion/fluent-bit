@@ -139,27 +139,30 @@ static int in_lib_collect(struct flb_input_instance *ins,
                 p_toplevel_element++;
                 double value = p_toplevel_element->val.via.f64;
 
-                /* Set data in metrics context */
-                bool found_metric = false;
-                for (int i = 0; i < ctx->gauges_size; i++) {
-                    if (flb_sds_cmp(name, ctx->named_metrics_gauge[i].name, flb_sds_len(ctx->named_metrics_gauge[i].name)) == 0) {
-                        found_metric = true;
-                        
-                        flb_plg_trace(ctx->ins, "Setting metric for %s - %s - %s: %llu - %.16f", labels[0], labels[1], name, ts, value);
-                        cmt_gauge_set(ctx->named_metrics_gauge[i].gauge, ts, value, labels_size, labels);
-
-                         /* Append the updated metrics */
-                        ret = flb_input_metrics_append(ctx->ins, NULL, 0, ctx->named_metrics_gauge[i].cmt);
-                        if (ret != 0) {
-                            flb_plg_error(ctx->ins, "could not append metrics: %i", ret);
-                        }
-                    }
+                /* Create CMetrics Gauge */
+                struct cmt *cmt = cmt_create();
+                // TODO: Remove hard-coded constants and make it more dynamic
+                // TODO: Label "Index" should only be used for sensors that really need it
+                char *label_keys[] = {"serial_number", "sensor_mac", "index"};
+                struct cmt_gauge *gauge = cmt_gauge_create(cmt, "orbit", "sensor", name, "d", labels_size, label_keys);
+                if (!gauge) {
+                    flb_plg_error(ctx->ins, "cmt_gauge_create failed");
+                    cmt_destroy(cmt);
+                    return -1;
                 }
-                if (!found_metric) {
-                    flb_plg_warn(ctx->ins, "No metric defined for %s", name);
+                        
+                flb_plg_trace(ctx->ins, "Setting metric for %s - %s - %s - %s: %llu - %.16f", labels[0], labels[1], name, labels[2], ts, value);
+                cmt_gauge_set(gauge, ts, value, labels_size, labels);
+
+                /* Append the updated metrics */
+                ret = flb_input_metrics_append(ctx->ins, NULL, 0, cmt);
+                if (ret != 0) {
+                    flb_plg_error(ctx->ins, "could not append metrics: %i", ret);
                 }
 
                 // Clean-up
+                cmt_gauge_destroy(gauge);
+                cmt_destroy(cmt);
                 flb_sds_destroy(name);
                 for (i = 0; i < labels_size; ++i) {
                     flb_sds_destroy(labels[i]);
@@ -185,89 +188,28 @@ static int in_lib_collect(struct flb_input_instance *ins,
 }
 
 static int in_lib_configure(struct flb_in_lib_config *ctx) {
-    struct mk_list *head = NULL;
-    struct mk_list *split;
-    struct mk_list *tmp;
-    struct flb_split_entry *sentry;
-    struct flb_config_map_val *gauge_definition_str;
-    struct gauge_record *gauge_record;
+    // TODO: Enable static labels
+    // struct mk_list *head = NULL;
+    // struct mk_list *split;
+    // struct mk_list *tmp;
+    // struct flb_split_entry *sentry;
+    // struct flb_config_map_val *gauge_definition_str;
+    // struct gauge_record *gauge_record;
 
-    mk_list_init(&ctx->gauges);
-    ctx->gauges_size = 0;
+    // mk_list_init(&ctx->gauges);
+    // ctx->gauges_size = 0;
 
-    /* Get labels (max 10) */
-    // TODO: Can we remove the 10 as constraint?
-    split = flb_utils_split(ctx->labels_str, ' ', 10);
-    ctx->labels_size = mk_list_size(split);
-    ctx->labels = flb_malloc(sizeof(char *) * (ctx->labels_size + 1));
-    int i = 0;
-    mk_list_foreach_safe(head, tmp, split) {
-        sentry = mk_list_entry(head, struct flb_split_entry, _head);
-        ctx->labels[i] = flb_strndup(sentry->value, sentry->len);
-        i++;
-    }
-
-    /* Get gauge definitions */
-    flb_config_map_foreach(head, gauge_definition_str, ctx->gauge_definitions) {
-        gauge_record = flb_malloc(sizeof(struct gauge_record));
-        if (!gauge_record) {
-            flb_errno();
-            return -1;
-        }
-        split = flb_utils_split(gauge_definition_str->val.str, ' ', 3);
-        if (mk_list_size(split) != 4) {
-            flb_plg_error(ctx->ins, "Invalid gauge parameter, expects 'NS SS NAME DESCRIPTION");
-            flb_free(gauge_record);
-            flb_utils_split_free(split);
-            return -1;
-        }
-
-        /* Get Namespace (NS) */
-        sentry = mk_list_entry_first(split, struct flb_split_entry, _head);
-        gauge_record->ns = flb_strndup(sentry->value, sentry->len);
-
-        /* Get Subsystem (SS) */
-        sentry = mk_list_entry_next(&sentry->_head, struct flb_split_entry, _head, split);
-        gauge_record->ss = flb_strndup(sentry->value, sentry->len);
-
-        /* Get Name */
-        sentry = mk_list_entry_next(&sentry->_head, struct flb_split_entry, _head, split);
-        gauge_record->name = flb_strndup(sentry->value, sentry->len);
-
-        /* Get Description */
-        sentry = mk_list_entry_last(split, struct flb_split_entry, _head);
-        gauge_record->description = flb_strndup(sentry->value, sentry->len);
-
-        flb_utils_split_free(split);
-        mk_list_add(&gauge_record->_head, &ctx->gauges);
-        ctx->gauges_size++;
-    }
-
-    if (ctx->gauges_size <= 0) {
-        flb_plg_error(ctx->ins, "at least one gauge is required");
-        return -1;
-    }
-
-    /* Add gauge definitions */
-    ctx->named_metrics_gauge = (struct named_metric_gauge*)flb_malloc(sizeof(struct named_metric_gauge)*ctx->gauges_size);
-    i = 0;
-    mk_list_foreach_safe(head, tmp, &ctx->gauges) {
-        gauge_record = mk_list_entry(head, struct gauge_record, _head);
-        flb_plg_trace(ctx->ins, "Create gauge with name %s", gauge_record->name) ;
-        ctx->named_metrics_gauge[i].name = flb_sds_create(gauge_record->name);
-        ctx->named_metrics_gauge[i].cmt = cmt_create();
-
-        if (!ctx->named_metrics_gauge[i].cmt) {
-            flb_plg_error(ctx->ins, "Could not initialize CMetrics");
-            flb_free(ctx);
-            return -1;
-        }
-
-        ctx->named_metrics_gauge[i].gauge = cmt_gauge_create(ctx->named_metrics_gauge[i].cmt,
-                                                                gauge_record->ns, gauge_record->ss, gauge_record->name,
-                                                                gauge_record->description, ctx->labels_size, ctx->labels);
-        i++;
-    }
+    // /* Get labels (max 10) */
+    // // TODO: Can we remove the 10 as constraint?
+    // split = flb_utils_split(ctx->labels_str, ' ', 10);
+    // ctx->labels_size = mk_list_size(split);
+    // ctx->labels = flb_malloc(sizeof(char *) * (ctx->labels_size + 1));
+    // int i = 0;
+    // mk_list_foreach_safe(head, tmp, split) {
+    //     sentry = mk_list_entry(head, struct flb_split_entry, _head);
+    //     ctx->labels[i] = flb_strndup(sentry->value, sentry->len);
+    //     i++;
+    // }
     return 0;
 }
 
@@ -306,7 +248,7 @@ static int in_lib_init(struct flb_input_instance *in,
         return -1;
     }
 
-    /* Configure labels and CMetrics contexts */
+    /* Configure static labels */
     if (in_lib_configure(ctx) < 0) {
         return -1;
     }
@@ -344,11 +286,6 @@ static int in_lib_exit(void *data, struct flb_config *config)
         flb_free(ctx->buf_data);
     }
 
-    // TODO: Check if we have to free more (e.g. cmt within named_metrics_gauge)
-    if (ctx->named_metrics_gauge) {
-        flb_free(ctx->named_metrics_gauge);
-    }
-
     s = &ctx->state;
     flb_pack_state_reset(s);
     flb_free(ctx);
@@ -357,16 +294,17 @@ static int in_lib_exit(void *data, struct flb_config *config)
 
 /* Configuration properties map */
 static struct flb_config_map config_map[] = {
-    {
-     FLB_CONFIG_MAP_STR, "labels", "default",
-     0, FLB_TRUE, offsetof(struct flb_in_lib_config, labels_str),
-     "Add labels to your metrics"
-    },
-    {
-     FLB_CONFIG_MAP_STR, "gauge", NULL,
-     FLB_CONFIG_MAP_MULT, FLB_TRUE, offsetof(struct flb_in_lib_config, gauge_definitions),
-     "Add gauge metrics"
-    },
+    // TODO: Enable static labels
+    // {
+    //  FLB_CONFIG_MAP_STR, "labels", "default",
+    //  0, FLB_TRUE, offsetof(struct flb_in_lib_config, labels_str),
+    //  "Add labels to your metrics"
+    // },
+    // {
+    //  FLB_CONFIG_MAP_STR, "gauge", NULL,
+    //  FLB_CONFIG_MAP_MULT, FLB_TRUE, offsetof(struct flb_in_lib_config, gauge_definitions),
+    //  "Add gauge metrics"
+    // },
 
     /* EOF */
     {0}

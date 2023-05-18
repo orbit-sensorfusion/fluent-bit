@@ -28,20 +28,6 @@
 
 #define LIB_BUF_CHUNK   65536
 
-struct named_metric_gauge {
-    flb_sds_t name;             /* Metrics Name     */
-    struct cmt *cmt;            /* CMetrics Context */
-    struct cmt_gauge *gauge;    /* CMetrics Gauge   */
-};
-
-struct gauge_record {
-    char *ns;
-    char *ss;
-    char *name;
-    char *description;
-    struct mk_list _head;
-};
-
 /* Library input configuration & context */
 struct flb_in_lib_config {
 
@@ -51,20 +37,7 @@ struct flb_in_lib_config {
     char *buf_data;             /* the real buffer         */
 
     struct flb_pack_state state;
-    struct flb_input_instance *ins;
-    
-    /* config options */
-    // Labels
-    flb_sds_t labels_str; 
-    int labels_size;
-    char **labels;
-    // Gauge Definitions
-    struct mk_list *gauge_definitions;
-    struct mk_list gauges;
-    int gauges_size;
-
-    /* An independent CMetrics metric for each gauge metric to record */
-    struct named_metric_gauge *named_metrics_gauge;   
+    struct flb_input_instance *ins; 
 };
 
 #endif
