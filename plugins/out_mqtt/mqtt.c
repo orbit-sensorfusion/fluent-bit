@@ -178,47 +178,26 @@ static int get_value_for_json_pointer(struct flb_out_mqtt *ctx, msgpack_object r
         token = strtok(NULL, "/");
     }
     
-    /* Get the value and convert it to a string */
+    /* Get the value and convert it to a string. We need a special
+     * handling for strings depending if they need to be quoted
+     * (e.g. for the payload) or not (e.g. for the topic).
+     */
     switch(current_obj.type) {
-        case MSGPACK_OBJECT_NIL:
-            *json_value = flb_sds_create("null");
-            break;
-        case MSGPACK_OBJECT_BOOLEAN:
-            flb_sds_printf(json_value, "%s", current_obj.via.boolean ? "true" : "false");
-            break;
-        case MSGPACK_OBJECT_POSITIVE_INTEGER:
-            flb_sds_printf(json_value, "%lu", (unsigned long) current_obj.via.i64);
-            break;
-        case MSGPACK_OBJECT_NEGATIVE_INTEGER:
-            flb_sds_printf(json_value, "%ld", (signed long) current_obj.via.i64);
-            break;
-        case MSGPACK_OBJECT_FLOAT32:
-        case MSGPACK_OBJECT_FLOAT64:
-            flb_sds_printf(json_value, "%.17g", (double) current_obj.via.f64);
-            break;
         case MSGPACK_OBJECT_STR:
-            ; // Empty statement
-            flb_sds_t msgpack_value = flb_sds_create_len(current_obj.via.str.ptr, (int) current_obj.via.str.size);
             if (quoted_str) {
-                // Note: We defined to extract string values with quotes
-            const flb_sds_t quote = flb_sds_create("\"");
-            *json_value = flb_sds_create(quote);
-                *json_value = flb_sds_cat(*json_value, msgpack_value, (int) current_obj.via.str.size);
-            *json_value = flb_sds_cat(*json_value, quote, 1);
-            flb_sds_destroy(quote);
+                // We defined to extract string values with quotes
+                flb_sds_t str_json = flb_msgpack_to_json_str(0, &current_obj);
+                *json_value = flb_sds_create(str_json);
             } else {
+                flb_sds_t msgpack_value = flb_sds_create_len(current_obj.via.str.ptr, (int) current_obj.via.str.size);
                 *json_value = flb_sds_create(msgpack_value);
+                flb_sds_destroy(msgpack_value);
             }
-            flb_sds_destroy(msgpack_value);
             break;
-        case MSGPACK_OBJECT_ARRAY:
-        case MSGPACK_OBJECT_MAP:
-        case MSGPACK_OBJECT_BIN:
-        case MSGPACK_OBJECT_EXT:
         default:
-            flb_plg_error(ctx->ins, "Error while getting value for JSON pointer: Value has wrong type '%d' (JSON pointer: %s).", current_obj.type, json_pointer_token);
-            flb_free(json_pointer_token);
-            return FLB_ERROR;
+            ; // Empty statement
+            flb_sds_t msgpack_json = flb_msgpack_to_json_str(0, &current_obj);
+            *json_value = flb_sds_create(msgpack_json);
     }
 
     flb_free(json_pointer_token);
