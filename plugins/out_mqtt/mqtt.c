@@ -109,6 +109,7 @@ static int extract_placeholder_names(struct flb_out_mqtt *ctx, flb_sds_t string,
         flb_sds_t name = (flb_sds_t)flb_malloc(name_length + 1);
         if (name == NULL) {
             flb_errno();
+            free(placeholder_names);
             return -1;
         }
         strncpy(name, start + 2, name_length);
@@ -119,6 +120,8 @@ static int extract_placeholder_names(struct flb_out_mqtt *ctx, flb_sds_t string,
         placeholder_names_tmp = (flb_sds_t*)flb_realloc(placeholder_names, placeholder_count * sizeof(flb_sds_t));
         if (placeholder_names_tmp == NULL) {
             flb_errno();
+            free(name);
+            free(placeholder_names);
             return -1;
         } else {
             placeholder_names = placeholder_names_tmp;
@@ -182,12 +185,14 @@ static int get_value_for_json_pointer(struct flb_out_mqtt *ctx, msgpack_object r
      * handling for strings depending if they need to be quoted
      * (e.g. for the payload) or not (e.g. for the topic).
      */
+    flb_sds_destroy(*json_value);
     switch(current_obj.type) {
         case MSGPACK_OBJECT_STR:
             if (quoted_str) {
-                // We defined to extract string values with quotes
-                flb_sds_t str_json = flb_msgpack_to_json_str(0, &current_obj);
+                // We requested to extract string values with quotes
+                char* str_json = flb_msgpack_to_json_str(0, &current_obj);
                 *json_value = flb_sds_create(str_json);
+                flb_free(str_json);
             } else {
                 flb_sds_t msgpack_value = flb_sds_create_len(current_obj.via.str.ptr, (int) current_obj.via.str.size);
                 *json_value = flb_sds_create(msgpack_value);
@@ -196,60 +201,58 @@ static int get_value_for_json_pointer(struct flb_out_mqtt *ctx, msgpack_object r
             break;
         default:
             ; // Empty statement
-            flb_sds_t msgpack_json = flb_msgpack_to_json_str(0, &current_obj);
+            char* msgpack_json = flb_msgpack_to_json_str(0, &current_obj);
             *json_value = flb_sds_create(msgpack_json);
+            flb_free(msgpack_json);
     }
 
     flb_free(json_pointer_token);
     return FLB_OK;
 }
 
-static int replace_placeholder_with_value(flb_sds_t *string, flb_sds_t placeholder_name, flb_sds_t placeholder_value, bool quoted_str) {
-    char* str_template = flb_malloc(strlen(*string) + 1);
-    if (str_template == NULL) {
-        flb_errno();
-        return FLB_ERROR;
-    }
-    strcpy(str_template, *string);
-
+static int replace_placeholder_with_value(flb_sds_t *output, flb_sds_t input, flb_sds_t placeholder_name, flb_sds_t placeholder_value, bool quoted_str) {
     const flb_sds_t placeholder_start = flb_sds_create("$(");
     const flb_sds_t placeholder_end = flb_sds_create(")");
     flb_sds_t placeholder_full = flb_sds_create(placeholder_start);
     placeholder_full = flb_sds_cat(placeholder_full, placeholder_name, strlen(placeholder_name));
     placeholder_full = flb_sds_cat(placeholder_full, placeholder_end, 1);
 
-    str_template = repl_str(str_template, placeholder_full, placeholder_value);
+    char* result = repl_str(input, placeholder_full, placeholder_value);
 
     flb_sds_destroy(placeholder_start);
     flb_sds_destroy(placeholder_end);
     flb_sds_destroy(placeholder_full);
 
-    *string = str_template;
+    flb_sds_destroy(*output);
+    *output = flb_sds_create(result);
+    flb_free(result);
+
     return FLB_OK;
 }
 
-static int replace_all_placeholders(struct flb_out_mqtt *ctx, msgpack_object root, flb_sds_t str_input, flb_sds_t *str_output, flb_sds_t *placeholder_names, int num_placeholders, bool quoted_str) {
-    char* str_template = flb_malloc(strlen(str_input) + 1);
-    if (str_template == NULL) {
-        flb_errno();
-        return FLB_ERROR;
-    }
-    strcpy(str_template, str_input);
-
+static int replace_all_placeholders(struct flb_out_mqtt *ctx, msgpack_object root, flb_sds_t input, flb_sds_t *output, flb_sds_t *placeholder_names, int num_placeholders, bool quoted_str) {
+    flb_sds_t result = flb_sds_create_size(0);
+    flb_sds_t result_tmp = input;
     for (int i = 0; i < num_placeholders; i++) {
         const flb_sds_t placeholder_name = placeholder_names[i];
         flb_sds_t placeholder_value = flb_sds_create_size(0);
         int ret = get_value_for_json_pointer(ctx, root, placeholder_name, &placeholder_value, quoted_str);
         if (ret == FLB_ERROR) {
+            flb_sds_destroy(placeholder_value);
             return FLB_ERROR;
         }
-        ret = replace_placeholder_with_value(&str_template, placeholder_name, placeholder_value, quoted_str);
+
+        ret = replace_placeholder_with_value(&result, result_tmp, placeholder_name, placeholder_value, quoted_str);
+        result_tmp = result;
+        flb_sds_destroy(placeholder_value);
         if (ret == FLB_ERROR) {
             return FLB_ERROR;
         }
     }
-
-    *str_output = flb_sds_create(str_template);
+    
+    flb_sds_destroy(*output);
+    *output = result;
+    
     return FLB_OK;
 }
 
