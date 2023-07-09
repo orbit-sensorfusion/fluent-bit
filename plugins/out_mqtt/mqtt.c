@@ -210,7 +210,7 @@ static int get_value_for_json_pointer(struct flb_out_mqtt *ctx, msgpack_object r
     return FLB_OK;
 }
 
-static int replace_placeholder_with_value(flb_sds_t *output, flb_sds_t input, flb_sds_t placeholder_name, flb_sds_t placeholder_value, bool quoted_str) {
+static int replace_placeholder_with_value(flb_sds_t *output, flb_sds_t input, flb_sds_t placeholder_name, flb_sds_t placeholder_value) {
     const flb_sds_t placeholder_start = flb_sds_create("$(");
     const flb_sds_t placeholder_end = flb_sds_create(")");
     flb_sds_t placeholder_full = flb_sds_create(placeholder_start);
@@ -242,7 +242,7 @@ static int replace_all_placeholders(struct flb_out_mqtt *ctx, msgpack_object roo
             return FLB_ERROR;
         }
 
-        ret = replace_placeholder_with_value(&result, result_tmp, placeholder_name, placeholder_value, quoted_str);
+        ret = replace_placeholder_with_value(&result, result_tmp, placeholder_name, placeholder_value);
         result_tmp = result;
         flb_sds_destroy(placeholder_value);
         if (ret == FLB_ERROR) {
