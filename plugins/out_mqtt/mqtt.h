@@ -34,6 +34,8 @@ struct flb_out_mqtt {
     flb_sds_t client_id;
     int qos;
     flb_sds_t protocol_version;
+    flb_sds_t username;
+    flb_sds_t password;
     int broker_tls;
     flb_sds_t broker_tls_ca_file;
     flb_sds_t broker_tls_cert_file;

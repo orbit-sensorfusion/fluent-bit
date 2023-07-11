@@ -309,6 +309,20 @@ static int cb_mqtt_init(struct flb_output_instance *ins, struct flb_config *conf
     }
     mosquitto_int_option(ctx->mosq, MOSQ_OPT_PROTOCOL_VERSION, protocol_version);
 
+    /* Set Authentication if enabled */
+    if (ctx->username != NULL && ctx->password != NULL) {
+        ret = mosquitto_username_pw_set(ctx->mosq, ctx->username, ctx->password);
+        if (ret) {
+            if (ret == MOSQ_ERR_INVAL) {
+                flb_plg_error(ctx->ins, "Error: Problem setting Authentication options: Invalid input parameters.");
+            } else {
+                flb_plg_error(ctx->ins, "Error: Problem setting Authentication options: %s.", mosquitto_strerror(ret));
+            }
+            mosquitto_lib_cleanup();
+            return -1;
+        }
+    }
+
     /* Set TLS Settings if enabled */
     if (ctx->broker_tls) {
         ret = mosquitto_tls_set(ctx->mosq, ctx->broker_tls_ca_file, NULL, ctx->broker_tls_cert_file, ctx->broker_tls_key_file, NULL);
@@ -465,6 +479,16 @@ static struct flb_config_map config_map[] = {
      FLB_CONFIG_MAP_STR, "protocol_version", "mqttv311",
      0, FLB_TRUE, offsetof(struct flb_out_mqtt, protocol_version),
     "The version of the MQTT protocol to use when connecting. Can be 'mqttv5', 'mqttv311' or 'mqttv31'. Defaults to 'mqttv311'."
+    },
+    {
+     FLB_CONFIG_MAP_STR, "username", NULL,
+     0, FLB_TRUE, offsetof(struct flb_out_mqtt, username),
+    "The username to authenticate against the MQTT broker."
+    },
+    {
+     FLB_CONFIG_MAP_STR, "password", NULL,
+     0, FLB_TRUE, offsetof(struct flb_out_mqtt, password),
+    "The password to authenticate against the MQTT broker."
     },
     {
      FLB_CONFIG_MAP_BOOL, "broker_tls", "false",
