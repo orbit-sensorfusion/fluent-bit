@@ -81,9 +81,9 @@ static int cb_grep_filter(const void *data, size_t bytes,
         struct flb_time tm;
         flb_time_pop_from_msgpack(&tm, &result, &msg_obj);
         
-        // printf("Received JSON object:\n");
-        // msgpack_object_print(stdout, *msg_obj);
-        // printf("\n");
+        //printf("Received JSON object:\n");
+        //msgpack_object_print(stdout, *msg_obj);
+        //printf("\n");
 
         struct cmt *cmt = cmt_create();
 
@@ -100,9 +100,9 @@ static int cb_grep_filter(const void *data, size_t bytes,
                     flb_sds_destroy(meta_key);
 
                     msgpack_object meta_obj = p_toplevel_element->val;
-                    // printf("Processing meta object...\n");
-                    // msgpack_object_print(stdout, meta_obj);
-                    // printf("\n");
+                    //printf("Processing meta object...\n");
+                    //msgpack_object_print(stdout, meta_obj);
+                    //printf("\n");
                     if (meta_obj.via.map.size == 6) {
                         msgpack_object_kv *p_meta_element = meta_obj.via.map.ptr;
                         flb_sds_t desc = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
@@ -163,6 +163,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
                 }
 
                 /* Timestamp */
+                //printf("Processing timestamp");
                 p_toplevel_element++;
                 flb_sds_t ts_key = flb_sds_create_len(p_toplevel_element->key.via.str.ptr, p_toplevel_element->key.via.str.size);
                 if (flb_sds_cmp(ts_key, "ts", flb_sds_len(ts_key)) == 0) {
@@ -170,7 +171,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
                     if (p_toplevel_element->val.type == MSGPACK_OBJECT_POSITIVE_INTEGER)
                     {
                         ts = p_toplevel_element->val.via.i64;
-                        printf("Timestamp: %llu\n", ts);
+                        //printf("Timestamp: %llu\n", ts);
                     }
                     else {
                         printf("Error: Wrong datatype for timestamp");
@@ -189,15 +190,15 @@ static int cb_grep_filter(const void *data, size_t bytes,
                     msgpack_object values_obj = p_toplevel_element->val;
 
                     if (values_obj.type == MSGPACK_OBJECT_ARRAY) {
-                        printf("Processing values array...\n");
+                        //printf("Processing values array...\n");
                         if (values_obj.via.array.size != 0) {
                             msgpack_object *p_values_element = values_obj.via.array.ptr;
                             msgpack_object *const pend_values_element = values_obj.via.array.ptr + values_obj.via.array.size;
                             for (; p_values_element < pend_values_element; ++p_values_element) {
                                 msgpack_object value_obj = *p_values_element;
-                                printf("Value: ");
-                                msgpack_object_print(stdout, value_obj);
-                                printf("\n");
+                                //printf("Value: ");
+                                //msgpack_object_print(stdout, value_obj);
+                                //printf("\n");
                                 if (value_obj.via.map.size == 2) {
                                     msgpack_object_kv *p_value_element = value_obj.via.map.ptr;
 
@@ -260,8 +261,8 @@ static int cb_grep_filter(const void *data, size_t bytes,
             break;
         }
 
-        uint64_t ts_now = cmt_time_now();
-        printf("Current Timestamp: %llu", ts_now);
+        //uint64_t ts_now = cmt_time_now();
+        //printf("Current Timestamp: %llu", ts_now);
         
         /* Convert metrics to msgpack */
         ret = cmt_encode_msgpack_create(cmt, &mt_buf, &mt_size);
@@ -271,6 +272,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
 
         if (ret != 0) {
             flb_plg_error(f_ins, "Could not encode metrics. Filter not applied. ");
+            printf("Issue filter encoding"); 
             return FLB_FILTER_NOTOUCH;
         }
     }
@@ -279,7 +281,6 @@ static int cb_grep_filter(const void *data, size_t bytes,
     // TODO: Is that correct here?!
     *out_buf = mt_buf;
     *out_size = mt_size;
-
     return FLB_FILTER_MODIFIED;
 }
 
