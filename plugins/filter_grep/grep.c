@@ -377,6 +377,8 @@ static int cb_grep_filter(const void *data, size_t bytes,
                                 printf("\n");
                                 if (value_obj.via.map.size == 2)
                                 {
+                                    msgpack_object_kv *p_value_element = value_obj.via.map.ptr;
+                                    
                                     // Labels
                                     size_t labels_size = p_value_element->val.via.array.size;
                                     msgpack_object *label_p = p_value_element->val.via.array.ptr;
@@ -389,10 +391,9 @@ static int cb_grep_filter(const void *data, size_t bytes,
                                         labels[i] = flb_sds_create_len(label_obj.via.str.ptr, label_obj.via.str.size);
                                         i++;
                                     }
-                                    
+
                                     // Value
                                     p_value_element++;
-                                    msgpack_object_kv *p_value_element = value_obj.via.map.ptr;
                                     double value = p_value_element->val.via.f64;
 
                                     // Set value for metric
