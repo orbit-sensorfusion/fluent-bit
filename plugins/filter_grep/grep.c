@@ -340,7 +340,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
                 flb_sds_t ts_key = flb_sds_create_len(p_toplevel_element->key.via.str.ptr, p_toplevel_element->key.via.str.size);
                 if (flb_sds_cmp(ts_key, "ts", flb_sds_len(ts_key)) == 0)
                 {
-                    // We support an accuracy of milliseconds
+                    // We support an accuracy of nanoseconds
                     if (p_toplevel_element->val.type == MSGPACK_OBJECT_POSITIVE_INTEGER)
                     {
                         ts = p_toplevel_element->val.via.i64;
