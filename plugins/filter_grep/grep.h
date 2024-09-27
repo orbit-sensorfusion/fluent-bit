@@ -47,4 +47,8 @@ struct grep_rule {
     struct mk_list _head;
 };
 
+struct log_to_metric_ctx {
+    struct cmt *cmt;
+};
+
 #endif
