@@ -254,9 +254,12 @@ static int cb_grep_filter(const void *data, size_t bytes,
     msgpack_unpacked_init(&result);
     while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS)
     {
-
         // Remove time
         flb_time_pop_from_msgpack(&tm, &result, &msg_obj);
+        
+        printf("Received JSON object:\n");
+        msgpack_object_print(stdout, *msg_obj);
+        printf("\n");
 
         cmt = cmt_create();
 
@@ -341,7 +344,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
                     if (p_toplevel_element->val.type == MSGPACK_OBJECT_POSITIVE_INTEGER)
                     {
                         ts = p_toplevel_element->val.via.i64;
-                        printf("Timestamp: %lu\n", ts);
+                        printf("Timestamp: %llu\n", ts);
                     }
                     else
                     {
@@ -378,7 +381,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
                                 if (value_obj.via.map.size == 2)
                                 {
                                     msgpack_object_kv *p_value_element = value_obj.via.map.ptr;
-                                    
+
                                     // Labels
                                     size_t labels_size = p_value_element->val.via.array.size;
                                     msgpack_object *label_p = p_value_element->val.via.array.ptr;
@@ -452,7 +455,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
         // // g = cmt_gauge_create(cmt, "cmetrics", "test", "cat_gauge", "first gauge",
         // //                  2, (char *[]) {"label3", "label4"});
         uint64_t ts_now = cmt_time_now();
-        printf("%lu", ts_now);
+        printf("%llu", ts_now);
         // p_metric_gauge = cmt_gauge_create(cmt, "node", "cpu", "frequency_hertz",
         //                                   "Current cpu thread frequency in hertz.",
         //                                   1, (char *[]){"cpu"});
