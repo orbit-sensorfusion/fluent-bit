@@ -262,6 +262,8 @@ static int cb_grep_filter(const void *data, size_t bytes,
 
         flb_sds_t cmt_type;
 
+        // Hint: Keys have to be accessed in alphabetic order!
+
         if (msg_obj->type == MSGPACK_OBJECT_MAP)
         {
             if (msg_obj->via.map.size == 3)
@@ -278,16 +280,8 @@ static int cb_grep_filter(const void *data, size_t bytes,
                     if (meta_obj.via.map.size == 6)
                     {
                         msgpack_object_kv *p_meta_element = meta_obj.via.map.ptr;
-                        cmt_type = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
-                        p_meta_element++;
-                        flb_sds_t ns = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
-                        p_meta_element++;
-                        flb_sds_t ss = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
-                        p_meta_element++;
-                        flb_sds_t name = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
-                        p_meta_element++;
                         flb_sds_t desc = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
-
+                        
                         // Labels
                         p_meta_element++;
                         size_t labels_size = p_meta_element->val.via.array.size;
@@ -300,7 +294,16 @@ static int cb_grep_filter(const void *data, size_t bytes,
                             msgpack_object label_obj = *label_p;
                             labels[i] = flb_sds_create_len(label_obj.via.str.ptr, label_obj.via.str.size);
                             i++;
-        }
+                        }
+
+                        p_meta_element++;
+                        flb_sds_t name = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
+                        p_meta_element++;
+                        flb_sds_t ns = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
+                        p_meta_element++;
+                        flb_sds_t ss = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
+                        p_meta_element++;
+                        cmt_type = flb_sds_create_len(p_meta_element->val.via.str.ptr, p_meta_element->val.via.str.size);
 
                         // Create metric
                         if (flb_sds_cmp(cmt_type, "counter", flb_sds_len(cmt_type)) == 0)
@@ -374,12 +377,7 @@ static int cb_grep_filter(const void *data, size_t bytes,
                                 printf("\n");
                                 if (value_obj.via.map.size == 2)
                                 {
-                                    // Value
-                                    msgpack_object_kv *p_value_element = value_obj.via.map.ptr;
-                                    double value = p_value_element->val.via.f64;
-
                                     // Labels
-                                    p_value_element++;
                                     size_t labels_size = p_value_element->val.via.array.size;
                                     msgpack_object *label_p = p_value_element->val.via.array.ptr;
                                     msgpack_object *const pend = p_value_element->val.via.array.ptr + p_value_element->val.via.array.size;
@@ -391,6 +389,11 @@ static int cb_grep_filter(const void *data, size_t bytes,
                                         labels[i] = flb_sds_create_len(label_obj.via.str.ptr, label_obj.via.str.size);
                                         i++;
                                     }
+                                    
+                                    // Value
+                                    p_value_element++;
+                                    msgpack_object_kv *p_value_element = value_obj.via.map.ptr;
+                                    double value = p_value_element->val.via.f64;
 
                                     // Set value for metric
                                     if (flb_sds_cmp(cmt_type, "counter", flb_sds_len(cmt_type)) == 0)
